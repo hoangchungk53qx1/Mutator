@@ -1,4 +1,4 @@
-# Mutator
+# Mutator - Rewrite
 
 [![JVM Tests](https://github.com/tunjid/Mutator/actions/workflows/tests.yml/badge.svg)](https://github.com/tunjid/Mutator/actions/workflows/tests.yml)
 ![Mutator Core](https://img.shields.io/maven-central/v/com.tunjid.mutator/core?label=mutator-core)

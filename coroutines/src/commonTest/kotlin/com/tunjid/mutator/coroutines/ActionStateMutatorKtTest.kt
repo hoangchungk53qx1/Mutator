@@ -17,14 +17,17 @@
 package com.tunjid.mutator.coroutines
 
 import app.cash.turbine.test
-import com.tunjid.mutator.ActionStateProducer
+import com.tunjid.mutator.ActionStateMutator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -34,7 +37,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-class ActionStateProducerKtTest {
+class ActionStateMutatorKtTest {
 
     private val testDispatcher = UnconfinedTestDispatcher()
 
@@ -49,10 +52,10 @@ class ActionStateProducerKtTest {
     }
 
     @Test
-    fun actionStateFlowProducerRemembersLastValue() = runTest {
+    fun actionStateFlowMutatorRemembersLastValue() = runTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-        val mutator = scope.actionStateFlowProducer<IntAction, State>(
+        val mutator = scope.actionStateFlowMutator<IntAction, State>(
             initialState = State(),
             started = SharingStarted.WhileSubscribed(),
             actionTransform = { actions ->
@@ -100,13 +103,64 @@ class ActionStateProducerKtTest {
     }
 
     @Test
+    fun actionStateFlowMutatorSuspendsWithNoSubscribers() = runTest {
+        val dispatcher = StandardTestDispatcher()
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+
+        val mutator = scope.actionStateFlowMutator<IntAction, State>(
+            initialState = State(),
+            started = SharingStarted.WhileSubscribed(),
+            actionTransform = { actions ->
+                actions
+                    .onEach { delay(1000) }
+                    .toMutationStream {
+                    when (val action = type()) {
+                        is IntAction.Add -> action.flow
+                            .map { it.mutation }
+
+                        is IntAction.Subtract -> action.flow
+                            .map { it.mutation }
+                    }
+                }
+            }
+        )
+
+        mutator.accept(IntAction.Add(value = 1))
+        mutator.accept(IntAction.Add(value = 1))
+        mutator.accept(IntAction.Add(value = 1))
+        mutator.accept(IntAction.Add(value = 1))
+
+        mutator.state.test {
+            // Read first emission, should be the initial value
+            assertEquals(State(), awaitItem())
+
+            // Queue should be drained
+            dispatcher.scheduler.advanceTimeBy(1000)
+            assertEquals(State(1.0), awaitItem())
+
+            dispatcher.scheduler.advanceTimeBy(1000)
+            assertEquals(State(2.0), awaitItem())
+
+            dispatcher.scheduler.advanceTimeBy(1000)
+            assertEquals(State(3.0), awaitItem())
+
+            dispatcher.scheduler.advanceTimeBy(1000)
+            assertEquals(State(4.0), awaitItem())
+
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        scope.cancel()
+    }
+
+    @Test
     fun noOpOperatorCompiles() {
-        val noOpActionStateProducer: ActionStateProducer<Action, StateFlow<State>> = State().asNoOpStateFlowMutator()
-        noOpActionStateProducer.accept(IntAction.Add(value = 1))
+        val noOpActionStateMutator: ActionStateMutator<Action, StateFlow<State>> = State().asNoOpStateFlowMutator()
+        noOpActionStateMutator.accept(IntAction.Add(value = 1))
 
         assertEquals(
             expected = State(),
-            actual = noOpActionStateProducer.state.value
+            actual = noOpActionStateMutator.state.value
         )
     }
 }
